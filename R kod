@@ -1,0 +1,370 @@
+## 0. Förberedelser --------------------------------------------------------
+
+
+library(sampling)  # strata, getdata, HTestimator, varest
+library(rio)       # import av Excel
+library(dplyr)     # datahantering
+library(ggplot2)   # diagram (för jämförelsen i slutet)
+
+set.seed(12345)    # gör urvalet reproducerbart
+
+
+## 1. Läs in data och definiera målpopulation ------------------------------
+
+# OBS: ändra filnamn/sheet efter din riktiga fil!
+# Exempel: "branschG_46.xlsx"
+pop_raw <- import("branschG_46.xlsx")
+
+# I rapporten: målpopulation = scope == 1 inom bransch G, område 46
+# Antar att Excel-filen redan är filtrerad till område 46.
+pop <- pop_raw %>%
+  filter(scope == 1)
+
+# Kontrollera storlek (ska vara ca 39 654 enligt rapporten)
+N <- nrow(pop)
+N
+
+
+## 2. Sanningsvärden för populationen -------------------------------------
+
+# Undersökningsvariabler:
+#   turn    - omsättning
+#   inv     - investeringar
+#   emp_sbs - antal anställda
+
+# Domän: företag med ≤ 20 anställda (emp_sbs <= 20)
+domain_indicator <- pop$emp_sbs <= 20
+
+# Totala sanningsvärden
+true_total_turn      <- sum(pop$turn, na.rm = TRUE)
+true_mean_inv        <- mean(pop$inv, na.rm = TRUE)
+true_total_emp       <- sum(pop$emp_sbs, na.rm = TRUE)
+true_total_emp_le20  <- sum(pop$emp_sbs[domain_indicator], na.rm = TRUE)
+
+# Varians i populationen (för tabell 1 i rapporten)
+true_var_turn        <- var(pop$turn, na.rm = TRUE)
+true_var_inv         <- var(pop$inv, na.rm = TRUE)
+true_var_emp         <- var(pop$emp_sbs, na.rm = TRUE)
+true_var_emp_le20    <- var(pop$emp_sbs[domain_indicator], na.rm = TRUE)
+
+true_total_turn
+true_mean_inv
+true_total_emp
+true_total_emp_le20
+
+true_var_turn
+true_var_inv
+true_var_emp
+true_var_emp_le20
+
+
+## 3. Beräkning av "desired sample size" -----------------------------------
+
+# Rapporten anger:
+# Z = 1.96 (95% KI)
+# e = 5 (felmarginal på antal anställda)
+# S = 81.2 (SD för emp_sbs i populationen)
+# N ≈ 39 654
+
+Z <- 1.96
+e <- 5
+
+# Antingen använder du S = 81.2 som i rapporten:
+S_emp_manual <- 81.2
+
+# ...eller beräknar SD direkt från data:
+S_emp <- sd(pop$emp_sbs, na.rm = TRUE)
+S_emp
+
+# Formel 1 – initial stickprovsstorlek (oändlig population):
+n0 <- (Z^2 * S_emp_manual^2) / (e^2)
+n0
+
+# Formel 2 – ändlighetskorrektion:
+n_desired <- (N * n0) / (N + n0 - 1)
+n_desired
+
+# Avrunda till ett heltal (rapporten anger ca 4 497)
+n <- round(n_desired)
+n
+
+
+## 4. Undersökning 1 – OSU u.å --------------------------------------------
+
+# Obundet slumpmässigt urval utan återläggning av n enheter
+# SRSWOR i sampling-paketet:
+ind_srs <- srswor(n = n, N = N)   # 0/1-indikator
+
+samp_srs <- pop[ind_srs == 1, ]
+nrow(samp_srs)  # ska vara n
+
+# Inklusionssannolikhet för OSU u.å:
+pi_srs <- rep(n / N, nrow(samp_srs))
+
+# HT-estimator för totaler:
+HT_total <- function(y, pik) {
+  sum(y / pik, na.rm = TRUE)
+}
+
+# Variansskattning via sampling::varest
+# (y = variabel, pk = inklusionssannolikheter)
+HT_var <- function(y, pik) {
+  varest(y = y, pk = pik)
+}
+
+### 4.1 Total omsättning (turn) -----------------------------
+
+t_hat_turn_srs  <- HT_total(samp_srs$turn, pi_srs)
+v_hat_turn_srs  <- HT_var(samp_srs$turn, pi_srs)
+
+t_hat_turn_srs
+v_hat_turn_srs
+
+### 4.2 Genomsnittlig investering (inv) ----------------------
+
+# HT för total investering:
+t_hat_inv_srs   <- HT_total(samp_srs$inv, pi_srs)
+v_hat_inv_srs   <- HT_var(samp_srs$inv, pi_srs)
+
+# HT-baserad medelskattning = t_hat / N
+mean_hat_inv_srs <- t_hat_inv_srs / N
+
+# Varians för medelskattning:
+v_hat_mean_inv_srs <- v_hat_inv_srs / (N^2)
+
+mean_hat_inv_srs
+v_hat_mean_inv_srs
+
+### 4.3 Totalt antal anställda (emp_sbs) ---------------------
+
+t_hat_emp_srs  <- HT_total(samp_srs$emp_sbs, pi_srs)
+v_hat_emp_srs  <- HT_var(samp_srs$emp_sbs, pi_srs)
+
+t_hat_emp_srs
+v_hat_emp_srs
+
+### 4.4 Domän: totalt antal anställda i företag med ≤ 20 anställda --------
+
+# Domänindikator i urvalet:
+domain_srs <- samp_srs$emp_sbs <= 20
+
+t_hat_emp_le20_srs <- HT_total(samp_srs$emp_sbs[domain_srs],
+                               pi_srs[domain_srs])
+
+v_hat_emp_le20_srs <- HT_var(samp_srs$emp_sbs[domain_srs],
+                             pi_srs[domain_srs])
+
+t_hat_emp_le20_srs
+v_hat_emp_le20_srs
+
+
+## 5. Undersökning 2 – Stratifierat OSU u.å (STOSU) -----------------------
+
+# Stratifieringsvariabel: företagsstorlek (antal anställda)
+# Enligt rapporten:
+#   Små  : 0–2 anställda
+#   Medel: 3–10 anställda
+#   Stora: 11+ anställda
+
+pop <- pop %>%
+  mutate(
+    size_class = case_when(
+      emp_sbs >= 0  & emp_sbs <= 2  ~ "small",
+      emp_sbs >= 3  & emp_sbs <= 10 ~ "medium",
+      emp_sbs >= 11                 ~ "large",
+      TRUE                          ~ NA_character_
+    )
+  )
+
+table(pop$size_class)
+
+# Stratumstorlekar Nh
+Nh <- table(pop$size_class)
+Nh
+
+H  <- length(Nh)          # antal strata
+N_small  <- as.numeric(Nh["small"])
+N_medium <- as.numeric(Nh["medium"])
+N_large  <- as.numeric(Nh["large"])
+
+# Vi använder samma totala urvalsstorlek n som tidigare
+n_total <- n
+
+# Populations-SD per stratum för t.ex. emp_sbs (för Neyman-allokering)
+S_h_emp <- pop %>%
+  group_by(size_class) %>%
+  summarise(S_h = sd(emp_sbs, na.rm = TRUE))
+
+S_h_emp
+
+# Neyman-allokering:
+# n_h = n * (N_h * S_h) / sum(N_h * S_h)
+Nh_vec  <- as.numeric(Nh[match(S_h_emp$size_class, names(Nh))])
+Sh_vec  <- S_h_emp$S_h
+
+alloc_factor <- Nh_vec * Sh_vec
+n_h_raw      <- n_total * alloc_factor / sum(alloc_factor)
+
+# Heltal (avrundning) – du kan justera manuellt om du vill exakt få
+# t.ex. 804, 502, 3191 som i rapporten.
+n_h <- round(n_h_raw)
+n_h
+
+# Lägg in i en data.frame för sampling::strata
+strata_info <- data.frame(
+  size_class = names(Nh),
+  Nh         = as.numeric(Nh),
+  n_h        = n_h[match(names(Nh), S_h_emp$size_class)]
+)
+
+strata_info
+
+# Stratifierat obundet slumpmässigt urval utan återläggning:
+# sampling::strata() kräver en data.frame med stratifieringsvariabeln
+pop_for_strata <- pop %>%
+  mutate(id = row_number())  # unik ID för getdata
+
+# Strata-dragning (STOSRSWOR)
+# type = "srswor": simple random sampling without replacement inom strata
+samp_strata_ids <- strata(
+  data  = pop_for_strata,
+  stratanames = "size_class",
+  size  = strata_info$n_h,
+  method = "srswor"
+)
+
+# Hämta de faktiska observationerna:
+samp_strata <- getdata(pop_for_strata, samp_strata_ids)
+
+# Stickprovsstorlek:
+nrow(samp_strata)
+
+# Inklusionssannolikhet per stratum:
+# pi_h = n_h / N_h
+pi_h <- with(strata_info, n_h / Nh)
+names(pi_h) <- strata_info$size_class
+pi_h
+
+# Lägg till pi i urvalsdata:
+samp_strata <- samp_strata %>%
+  mutate(
+    pi = pi_h[size_class]
+  )
+
+# Kontroll:
+table(samp_strata$size_class)
+head(samp_strata)
+
+
+### 5.1 HT-skattningar i det stratifierade urvalet -------------------------
+
+pi_st <- samp_strata$pi
+
+# Total omsättning
+t_hat_turn_st   <- HT_total(samp_strata$turn, pi_st)
+v_hat_turn_st   <- HT_var(samp_strata$turn, pi_st)
+
+t_hat_turn_st
+v_hat_turn_st
+
+# Genomsnittlig investering (via total)
+t_hat_inv_st    <- HT_total(samp_strata$inv, pi_st)
+v_hat_inv_st    <- HT_var(samp_strata$inv, pi_st)
+
+mean_hat_inv_st <- t_hat_inv_st / N
+v_hat_mean_inv_st <- v_hat_inv_st / (N^2)
+
+mean_hat_inv_st
+v_hat_mean_inv_st
+
+# Totalt antal anställda
+t_hat_emp_st  <- HT_total(samp_strata$emp_sbs, pi_st)
+v_hat_emp_st  <- HT_var(samp_strata$emp_sbs, pi_st)
+
+t_hat_emp_st
+v_hat_emp_st
+
+# Domän: totalt antal anställda i företag med ≤ 20 anställda
+domain_st <- samp_strata$emp_sbs <= 20
+
+t_hat_emp_le20_st <- HT_total(samp_strata$emp_sbs[domain_st],
+                              pi_st[domain_st])
+
+v_hat_emp_le20_st <- HT_var(samp_strata$emp_sbs[domain_st],
+                            pi_st[domain_st])
+
+t_hat_emp_le20_st
+v_hat_emp_le20_st
+
+
+## 6. Sammanställning för tabeller och diagram -----------------------------
+
+# Skapa en data.frame med "sanningsvärden", OSU och STOSU
+results_totals <- data.frame(
+  metod = c("SANNING", "OSU", "STOSU"),
+  total_omsattning = c(true_total_turn,
+                       t_hat_turn_srs,
+                       t_hat_turn_st),
+  mean_investering = c(true_mean_inv,
+                       mean_hat_inv_srs,
+                       mean_hat_inv_st),
+  total_anstallda = c(true_total_emp,
+                      t_hat_emp_srs,
+                      t_hat_emp_st),
+  total_anstallda_le20 = c(true_total_emp_le20,
+                           t_hat_emp_le20_srs,
+                           t_hat_emp_le20_st)
+)
+
+results_totals
+
+# Motsvarande varians-tabell
+results_varians <- data.frame(
+  metod = c("SANNING", "OSU", "STOSU"),
+  var_total_omsattning = c(true_var_turn,
+                           v_hat_turn_srs,
+                           v_hat_turn_st),
+  var_mean_investering = c(true_var_inv,
+                           v_hat_mean_inv_srs,
+                           v_hat_mean_inv_st),
+  var_total_anstallda = c(true_var_emp,
+                          v_hat_emp_srs,
+                          v_hat_emp_st),
+  var_total_anstallda_le20 = c(true_var_emp_le20,
+                               v_hat_emp_le20_srs,
+                               v_hat_emp_le20_st)
+)
+
+results_varians
+
+
+## 7. Diagram – jämförelse OSU / SANNING / STOSU (likt Diagram 1) ---------
+
+# Gör om till "long format" för enklare plottning
+library(tidyr)
+
+plot_df <- results_totals %>%
+  pivot_longer(
+    cols = -metod,
+    names_to = "parameter",
+    values_to = "value"
+  )
+
+plot_df$parameter <- factor(
+  plot_df$parameter,
+  levels = c("total_anstallda",
+             "total_omsattning",
+             "mean_investering",
+             "total_anstallda_le20"),
+  labels = c("Total antal anställda",
+             "Total omsättning",
+             "Genomsnittlig investering",
+             "Antal anställda i företag ≤ 20")
+)
+
+# Skapa stapeldiagram (separerat per parameter)
+ggplot(plot_df, aes(x = metod, y = value, fill = metod)) +
+  geom_col() +
+  facet_wrap(~ parameter, scales = "free_y") +
+  labs(x = "", y = "", title = "Jämförelse: SANNING vs OSU vs STOSU") +
+  theme_minimal()
