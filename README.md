@@ -1,86 +1,115 @@
-# Sampling Methods for Business Population in Sector G – R Project
+# Sampling Methods for Business Population in Sector G (Sweden)
 
-## Summary
+This project compares two probability sampling designs—**Simple Random Sampling Without Replacement (OSU)** and **Stratified Random Sampling Without Replacement with Neyman Allocation (STOSU)**—using simulated data from Sweden’s business sector **G (Wholesale; repair of motor vehicles and motorcycles)**.
 
-This project compares two sampling methods—simple random sampling without replacement (OSU) and stratified random sampling without replacement with Neyman allocation (STOSU)—for estimating key parameters in a simulated population of companies in Sweden's industry sector G (Wholesale; repair of motor vehicles and motorcycles).  
-Estimated parameters include total turnover, average investments, total number of employees, and a domain analysis focused on small companies (≤ 20 employees).  
-After drawing a sample of about 4,500 companies, results show that STOSU provides more accurate estimates and significantly lower variance for totals compared to OSU. The report analyzes these findings and discusses possible improvements such as ratio estimation and alternative domains.  
-The conclusion is that stratification is effective when correlated auxiliary variables are available and that sample design is crucial for precision and accuracy.
+The goal is to estimate key economic parameters such as total turnover, average investment, and total employment, and to evaluate how sampling design affects precision and variance.
+
+A domain analysis focusing on **small companies (≤ 20 employees)** is also included.
 
 ---
 
-## Project Structure
+## Dataset
 
-- **Data:** Simulated Excel data of companies in sector G, segment 46 (Wholesale).
-- **Analysis:** Estimation of total turnover, average investments, total employees, and domain-specific estimates for small companies.
-- **Sampling Methods:**
-  - OSU: Simple random sampling without replacement.
-  - STOSU: Stratified sampling by company size (number of employees) with Neyman allocation.
-- **Statistical Tools & Packages:**  
-  - R, with `sampling` and `rio` packages.
-  - Functions: `strata`, `getdata`, `HTestimator`, `varest`.
+- **Source:** Simulated Excel dataset of companies in SNI2007 Sector G, segment 46  
+- **Population size:** ~39,654 companies  
+- **Sample size:** ~4,500 companies  
+- **Key variables:**
+  - `nace` — 4-digit industry code  
+  - `Turn_admin` — administrative turnover (true values may include zeros)  
+  - `turn` — survey-reported turnover  
+  - `inv` — survey-reported investments  
+  - `N_emp` — number of employees  
+  - `emp_sbs` — employees in survey  
+  - `scope` — target population indicator (1 = in scope)
 
 ---
 
 ## Research Questions
 
-1. How well does OSU estimate total turnover, average investment, and total employees in a domain?
-2. What are the effects of STOSU compared to OSU on point estimates, variance, and precision for key variables?
-3. What added value does domain estimation for companies with ≤ 20 employees provide?
-4. Which sampling method is most suitable for analyzing company structure in a population with varying sizes and industry distribution?
+1. How well does OSU estimate:
+   - Total turnover  
+   - Average investment  
+   - Total employees  
+   - Domain estimates for small firms?
+
+2. How does **STOSU** improve:
+   - Variance  
+   - Precision  
+   - Stability of estimates?
+
+3. What is the added value of **domain estimation** for small companies?
+
+4. Which sampling method is most suitable for analyzing heterogeneous business populations?
+
+---
+
+## Methodology
+
+### **OSU — Simple Random Sampling Without Replacement**
+- Unbiased for totals and means  
+- Higher variance due to high population heterogeneity  
+- Estimates fluctuate more for turnover and investment
+
+### **STOSU — Stratified Sampling (Neyman Allocation)**
+- Stratification based on number of employees (`N_emp`)  
+- Neyman allocation assigns larger sample fractions to strata with higher variance  
+- Dramatically reduces variance and increases estimate precision  
+- Especially effective for totals and domain values  
+
+### **Estimators & Functions Used**
+- **Horvitz–Thompson estimator (HT)**  
+- **HT variance estimator**  
+- Functions from R packages:
+  - `strata()`, `getdata()`, `HTestimator()`, `varest()`  
+- Implemented for both sampling designs
 
 ---
 
 ## Key Results
 
-- **True values** (from the full population, with scope=1) are calculated for comparison.
-- **Sample size:** About 4,500 companies (from a population of ~39,654).
-- **OSU Results:**  
-  - Provides unbiased estimates but tends to over/underestimate totals and mean investments, with higher variance.
-- **STOSU Results:**  
-  - Stratification by company size dramatically reduces variance and increases precision.
-  - Neyman allocation assigns more samples to strata with higher variability (large companies).
-  - Estimates for the domain of small companies (≤ 20 employees) are much closer to true values.
-- **Domain Estimation:**  
-  - Analysis for small companies highlights differences in resource distribution between small and large firms—important for economic policy and reporting.
+### True Population Values  
+Calculated from the full dataset (`scope = 1`) and used as benchmarks.
+
+### OSU Results  
+- Unbiased but highly variable  
+- Tends to over/underestimate totals  
+- Variance large for turnover and investment  
+- Domain estimates less stable
+
+### STOSU Results  
+- Much lower variance for all parameters  
+- Significantly more precise totals  
+- Domain estimates for **small companies (≤ 20 employees)** very close to true values  
+- Demonstrates the importance of stratification when auxiliary info is correlated with study variables
+
+### Domain Analysis  
+Shows large structural differences between small and large firms.  
+Important implications for:
+- Structural business statistics  
+- Economic policy  
+- SME-focused research  
 
 ---
 
 ## Conclusions
 
-- Stratified sampling with Neyman allocation improves accuracy and lowers variance.
-- Correlation between auxiliary and study variables is key for efficient sample design.
-- Ratio estimation or other models could further improve precision if auxiliary register data is available.
-- Domain analysis is valuable for understanding subgroups, especially small businesses.
-- Method choice substantially impacts both precision and reliability of survey estimates.
+- **Stratified sampling with Neyman allocation is far superior** to OSU for this population.  
+- When auxiliary variables (like employees) correlate with study variables (turnover, investment), stratification greatly improves efficiency.  
+- Domain estimation is essential for understanding specific subpopulations such as small enterprises.  
+- Future improvements:
+  - Ratio estimators  
+  - Regression estimators  
+  - Inclusion of administrative register data  
+
+The choice of sampling design profoundly affects precision, variance, and reliability of survey estimates.
 
 ---
 
 ## How to Run
 
-1. Place the simulated Excel data file in the project directory.
-2. Use the provided R script (`analysis.R`) to run the sampling, estimation, and variance calculations.
-3. Required packages: `sampling`, `rio`.
-4. The script includes all code for OSU and STOSU designs, HT estimators, variance calculations, and domain analysis.
+1. Place `data.xlsx` in the project directory  
+2. Open `analysis.R` in RStudio  
+3. Install required packages:
 
----
-
-## Files
-
-- `analysis.R`: Main R script for data import, sampling, estimation, and analysis.
-- `data.xlsx`: Simulated company data for sector G.
-- `README.md`: Project explanation and instructions.
-
----
-
-## Variable Definitions
-
-- **nace:** 4-digit industry code (SNI2007).
-- **Turn_admin:** Turnover (can be zero).
-- **N_emp:** Number of employees.
-- **scope:** 1 = in target population, 0 = outside.
-- **turn:** Reported turnover in the survey.
-- **inv:** Investments reported in the survey.
-- **emp_sbs:** Number of employees reported in the survey.
-
----
+```r
+install.packages(c("sampling", "rio"))
